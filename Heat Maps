@@ -1,0 +1,133 @@
+library(readxl)
+
+setwd("/Users/alexlu/Downloads")
+
+df_2324 <- read_excel("ENROLL2024_20241105.xlsx", sheet = 1)
+df_2223 <- read_excel("ENROLL.xlsx", sheet = 1)
+
+df_2223 <- df_2223[1:153,]
+df_2324 <- df_2324[1:153,]
+
+
+merged_df <- full_join(df_2223, df_2324)
+merged_df <- arrange(merged_df, ENTITY_NAME, YEAR)
+
+
+# Only keep rows that are "counties" 
+merged_df <- merged_df[grepl("County", merged_df$ENTITY_NAME), ]
+
+# Load packages
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(tigris)
+library(viridis)
+library(plotly)
+
+options(tigris_use_cache = TRUE)
+
+#Get NY counties shapefile using tigris
+ny_counties <- counties(state = "NY", cb = TRUE, class = "sf")
+
+#Create normalized join keys because capitalization different
+merged_df <- merged_df %>%
+  mutate(
+    join_county = tolower(ENTITY_NAME)
+  )
+
+ny_counties <- ny_counties %>%
+  mutate(
+    join_county = tolower(NAMELSAD),
+  )
+
+#Left join using the normalized columns
+result <- left_join(merged_df, ny_counties, by = "join_county")
+
+#Removed the normalized column
+result <- result %>% select(-join_county)
+result <- st_as_sf(result)
+
+result_2024 <- result[result$YEAR == '2024', ]
+class(result_2024)
+
+ggplot(result_2024) +
+  geom_sf(aes(fill = K12), color = "white") +
+  scale_fill_gradientn(
+    name = "Total Enrolment",
+    colors = c("#fff33b",  "#fdc70c", "#f3903f", "#ed683c", "#e93e3a"),  # Colors to use in the gradient
+    na.value = "gray90"  # Color for NA values
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Total Enrolment K-12 by County in New York",
+    caption = "Data Source: New York State Education Department"
+  )
+
+
+### Repeat for percentages for other spreadsheet
+DF_2324 <- read_excel("ENROLL2024_20241105.xlsx", sheet = 3)
+DF_2324 <- DF_2324[grepl("County", DF_2324$ENTITY_NAME),]
+DF_2324 <- DF_2324[DF_2324$YEAR == '2024',]
+DF_2324 <- DF_2324[-nrow(DF_2324),]
+DF_2324 <- DF_2324 %>%
+  mutate(
+    join_county = tolower(ENTITY_NAME)
+  )
+
+result_1 <- left_join(DF_2324, ny_counties, by = "join_county")
+result_1 <- result_1 %>% select(-join_county)
+result_1 <- st_as_sf(result_1)
+
+
+# Function for General Heat Map Plots
+heat_plot <- function(parameter, label) {
+  ggplot(result_1) +
+    geom_sf(aes(fill = {{ parameter }}), 
+            color = "white") +
+    scale_fill_gradientn(
+      name = "Percentage",
+      colors = c("#fff33b",  "#fdc70c", "#f3903f", "#ed683c", "#e93e3a"),  # Colors to use in the gradient
+      na.value = "gray90"  # Color for NA values
+    ) +
+    theme_minimal() +
+    labs(
+      title = label,
+      caption = "Data Source: New York State Education Department"
+    )
+}
+
+
+# Function for Interactive Heat Map Plots
+interactive_plot <- function(parameter, label) {
+  x <- ggplot(result_1) +
+    geom_sf(aes(fill = {{ parameter }},
+                text = paste0("County: ", ENTITY_NAME, "\nPercentage: ", round({{ parameter }}, 2), "%")),
+            color = "white") +
+    scale_fill_gradientn(
+      name = "Percentage",
+      colors = c("#fff33b",  "#fdc70c", "#f3903f", "#ed683c", "#e93e3a"),  # Colors to use in the gradient
+      na.value = "gray90"  # Color for NA values
+    ) +
+    theme_minimal() +
+    labs(
+      title = label,
+      caption = "Data Source: New York State Education Department"
+    )
+  ggplotly(x, tooltip = "text")
+}
+
+
+
+# Cool blue to purples (looks pretty smooth)
+# c("#deebf7", "#9ecae1", "#6baed6", "#3182bd", "#08519c")
+# Greens to browns
+# c("#edf8e9", "#bae4b3", "#74c476", "#31a354", "#006d2c")
+# Reds to dark red
+# c("#fee5d9", "#fcae91", "#fb6a4a", "#de2d26", "#a50f15")
+
+
+heat_plot(PER_ASIAN, "Percent of Asian or Native Hawaiian Students by County in New York")
+interactive_plot(PER_ASIAN, "Percent of Asian or Native Hawaiian Students by County in New York")
+interactive_plot(PER_HOMELESS, "Percent of Homeless Students by County in New York")
+interactive_plot(PER_BLACK, "Percent of Black Students by County in New York")
+interactive_plot(PER_HISP, "Percent of Hispanic Students by County in New York")
